@@ -1,9 +1,8 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import numpy as np
 from pathlib import Path
-import json
 
 app = FastAPI()
 
@@ -14,56 +13,45 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
-# Load JSON once at startup
-DATA_PATH = Path(__file__).parent.parent / "assets" / "q-vercel-latency.json"
-try:
-    with open(DATA_PATH) as f:
-        raw = json.load(f)
-except Exception as e:
-    raise RuntimeError(f"Could not load telemetry JSON: {e}")
+# Load the dataset once when the app starts
+# The data file should be in the same directory as this script
+DATA_FILE = Path(__file__).parent / "q-vercel-latency.json"
+df = pd.read_json(DATA_FILE)
 
-# Flatten into DataFrame
-records = []
-for region, recs in raw.items():
-    for r in recs:
-        records.append({
-            "region": region,
-            "latency_ms": r.get("latency_ms"),
-            "uptime": r.get("uptime")
-        })
-df = pd.DataFrame.from_records(records)
 
-@app.get("/health")
-async def health_check():
-    return {"status": "ok"}
+@app.get("/")
+async def root():
+    return {"message": "Vercel Latency Analytics API is running."}
 
-@app.post("/")
+
+@app.post("/api/")
 async def get_latency_stats(request: Request):
     payload = await request.json()
-    regions = payload.get("regions", [])
-    threshold = float(payload.get("threshold_ms", 0))
+    regions_to_process = payload.get("regions", [])
+    threshold = payload.get("threshold_ms", 200)
 
-    result = {}
-    for region in regions:
-        sub = df[df["region"] == region]
-        if sub.empty:
-            result[region] = {
-                "avg_latency": 0.0,
-                "p95_latency": 0.0,
-                "avg_uptime": 0.0,
-                "breaches": 0
-            }
-            continue
+    results = []
 
-        lat = sub["latency_ms"].to_numpy()
-        up  = sub["uptime"].to_numpy()
-        result[region] = {
-            "avg_latency": round(lat.mean(), 2),
-            "p95_latency": round(np.percentile(lat, 95), 2),
-            "avg_uptime":  round(up.mean(), 3),
-            "breaches":    int((lat > threshold).sum())
-        }
+    for region in regions_to_process:
+        region_df = df[df["region"] == region]
 
-    return {"regions": result}
+        if not region_df.empty:
+            avg_latency = round(region_df["latency_ms"].mean(), 2)
+            p95_latency = round(np.percentile(region_df["latency_ms"], 95), 2)
+            avg_uptime = round(region_df["uptime_pct"].mean(), 3)
+            breaches = int(region_df[region_df["latency_ms"] > threshold].shape[0])
+
+            results.append(
+                {
+                    "region": region,
+                    "avg_latency": avg_latency,
+                    "p95_latency": p95_latency,
+                    "avg_uptime": avg_uptime,
+                    "breaches": breaches,
+                }
+            )
+
+    return {"regions": results}
