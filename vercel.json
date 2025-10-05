@@ -1,12 +1,14 @@
 {
   "version": 2,
   "builds": [
-    {
-      "src": "api/latency.py",
-      "use": "@vercel/python"
-    }
+    { "src": "api/latency.py", "use": "@vercel/python" }
   ],
   "routes": [
+    {
+      "src": "/api/latency/health",
+      "methods": ["GET"],
+      "dest": "api/latency.py"
+    },
     {
       "src": "/api/latency",
       "methods": ["POST"],
