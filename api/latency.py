@@ -17,7 +17,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.post("/api/latency")
+@app.post("/")
 async def compute_latency(data: RequestBody):
     # Load telemetry bundle
     import json, os
